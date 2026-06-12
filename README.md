@@ -1,260 +1,153 @@
-# easyob.el — 极简 DSL，为 Org-babel 快速添加新语言支持
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+# easyob.el — 极简 DSL，为 Org‑babel 快速添加新语言支持
 
-`easyob.el` 提供了一套声明式宏，让你用**一行代码**为 Org-mode 的 Babel 模块增加任意语言的执行支持。  
-无需深入了解 `ob-*.el` 的复杂内部机制，只需告诉它「用什么命令执行临时文件」，就能在 Org 文档中编写和运行该语言的代码块。
-
----
-
-## 特性
-
-- **简洁定义**：`(easyob-def clojure "clj -M $FILE" :extension ".clj")` 即可启用 Clojure 代码块。
-- **自动补全/包裹**：自动为代码添加 `main` 函数、库引用等模板。
-- **变量传递**：通过 `:var` 将 Org 表格或 Lisp 数据传入代码。
-- **同步/异步执行**：支持 `:async t` 后台运行。
-- **文件结果**：可将结果输出为文件链接（如图片）。
-- **结果类型**：自动处理 table、vector 和标量结果。
-- **零依赖**（除 `s` 库外，Emacs 内置）。
-
----
+**easyob** 是一个基于 Org‑babel 的轻量级宏库，只需几行声明，即可在 Org 文件中执行任何语言（如 Clojure、Lua、Ruby、Haskell 等），并自动支持**临时文件执行**和**REPL 会话**。  
+它封装了变量注入、代码块包裹、结果捕获、提示符过滤等繁琐细节，让你专注于“写代码”而非“搭架子”。
 
 ## 安装
 
-### 手动安装
-将 `easyob.el` 放入你的 `load-path`，然后在配置中添加：
+将 `easyob.el` 及其依赖文件放置在 Emacs 的 `load-path` 中，然后在配置中加载：
 
 ```elisp
 (require 'easyob)
 ```
 
-### 使用 straight.el
-```elisp
-(straight-use-package
- '(easyob :type git :host github :repo "lyt0628/easyob"))
-```
+或直接下载整个项目，在 `init.el` 中添加路径并加载。
 
-### 使用 use-package
-```elisp
-(use-package easyob
-  :load-path "path/to/easyob")
-```
+## 快速开始 — 添加一个语言（以 Clojure 为例）
 
-> 要求：Emacs 24.4 及以上，已安装 `s` 库（可通过 `M-x package-install RET s RET` 安装）。
-
----
-
-## 快速开始
-
-以 **Clojure** 为例，在 Emacs 配置中添加：
+只需要写一个宏调用：
 
 ```elisp
-(easyob-def clojure "clj -M $FILE"
+(easyob-def-session clojure
+  "clj -M $FILE"       ; 临时文件执行命令
+  "clj"                ; REPL 启动命令
+  "user=>[ \t]*"       ; 提示符正则（兼容 ANSI）
   :lang "clojure"
   :extension ".clj"
   :filename-prefix "ob-clj-"
-  :head "(println (do "
-  :tail "))")
+  :head "(prn (do "     ; 非会话时包裹开头
+  :tail "))"            ; 非会话时包裹结尾
+  :var "(def %s %s)"    ; 变量格式
+  :session-async t)     ; 允许异步会话（可选）
 ```
 
-重启 Emacs 后，即可在 Org 文件中执行 Clojure 代码：
+保存为 `ob-clojure.el` 并加载后，即可在 Org 中使用 `clojure` 语言。
+
+## 两种执行模式
+
+### 1. 临时文件执行（默认）
+
+代码块内容写入临时文件，通过命令执行，标准输出成为结果。
 
 ```org
 #+BEGIN_SRC clojure
-(+ 1 2)
+  (+ 1 2)
 #+END_SRC
+
+#+RESULTS:
+: 3
 ```
 
-按 `C-c C-c` 执行，结果为 `3`。
+内部过程：`(prn (do (+ 1 2)))` → 写入 `.clj` 文件 → `clj -M /tmp/...clj` → 捕获 stdout。
 
----
+### 2. REPL 会话（需要 `:session`）
 
-## 选项说明
-
-`easyob-def` 宏的完整语法：
-
-```elisp
-(easyob-def NAME COMMAND &rest OPTIONS)
-```
-
-| 关键字               | 类型     | 默认值               | 说明                                                                 |
-|----------------------|----------|----------------------|----------------------------------------------------------------------|
-| `:lang`              | string   | `(symbol-name NAME)` | 对应 `#+BEGIN_SRC` 的语言名                                          |
-| `:extension`         | string   | `""`                 | 临时文件扩展名，如 `".py"`                                            |
-| `:filename-prefix`   | string   | `""`                 | 临时文件前缀                                                         |
-| `:head`              | string   | `""`                 | 始终添加到代码块内容之前（在所有补全包装之后）                       |
-| `:tail`              | string   | `""`                 | 始终添加到代码块内容之后                                             |
-| `:complete-check-regx` | regexp  | `nil`                | 如果代码块正文不匹配此正则，则自动包裹 `:complete-prefix` 和 `:complete-subfix` |
-| `:complete-prefix`   | string   | `""`                 | 补全时添加的前缀                                                     |
-| `:complete-subfix`   | string   | `""`                 | 补全时添加的后缀                                                     |
-| `:file`              | string   | `""`                 | 结果文件模板，用于生成图片等输出（如 `"$FILE.png"`）                  |
-| `:var`               | string   | `nil`                | 变量定义格式字符串，如 `"(def %s %s)"`                               |
-
-> **顺序说明**：最终的代码块内容 = `head` + (可选 `complete-prefix` + 原始正文 + `complete-subfix`) + `tail`。
-
----
-
-## 命令占位符
-
-`COMMAND` 字符串支持以下占位符，它们会在执行前被替换为实际值：
-
-| 占位符         | 说明                                 |
-|----------------|--------------------------------------|
-| `$FILE`        | 包含完整代码的临时文件路径           |
-| `$FILE_BASE`   | 文件名（不含目录和扩展名）           |
-| `$FILE_DIR`    | 临时文件所在目录                     |
-| `$FILE_SIMPLE` | `$FILE_DIR/$FILE_BASE` 的快捷方式    |
-| `$BODY`        | 最终的代码正文（包括 head/tail 等）  |
-
-示例：
-```elisp
-(easyob-def python "python3 $FILE" ...)
-(easyob-def dot "dot -Tpng $FILE -o $FILE.png" :file "$FILE.png" ...)
-```
-
----
-
-## 变量传递
-
-使用 `:var` 选项定义变量格式模板（`%s` 分别代表**变量名**和**值**）：
-
-```elisp
-(easyob-def python "python3 $FILE"
-  :lang "python"
-  :extension ".py"
-  :var "%s = %s")
-```
-
-在 Org 中：
+代码块在同一个持久化的 REPL 中依次执行，共享状态。
 
 ```org
-#+BEGIN_SRC python :var x=10 :var name="Alice"
-print(x, name)
+#+BEGIN_SRC clojure :session my-repl
+  (def counter (atom 0))
+  (swap! counter inc)
 #+END_SRC
+
+#+RESULTS:
+: #'user/counter
+
+#+BEGIN_SRC clojure :session my-repl
+  (prn @counter)
+#+END_SRC
+
+#+RESULTS:
+: 1
 ```
 
-会生成：
-```python
-x = 10
-name = "Alice"
-print(x, name)
-```
+**无会话？** 如果没写 `:session`，即使语言定义了会话命令，也会走临时文件执行，确保纯函数式代码块不受干扰。
 
-> **注意**：默认不对值进行序列化。如需传递字符串、列表等复杂类型，请自行确保格式正确（字符串需手动加引号），或使用自定义的变量转换函数（见高级用法）。
+## 支持的特性
 
----
-
-## 同步与异步
-
-- **同步执行**（默认）：结果在 `C-c C-c` 后直接插入到 Org 文档中。
-- **异步执行**：添加 `:async t` 头部参数，代码将在后台运行，输出显示在名为 `*org-babel-execute:<LANG>*` 的缓冲区中，不会自动插入结果。
+### 变量注入（`:var`）
 
 ```org
-#+BEGIN_SRC python :async t
-# 耗时计算
+#+BEGIN_SRC clojure :var x=10
+  (* x x)
 #+END_SRC
+
+#+RESULTS:
+: 100
 ```
 
----
+语言定义中的 `:var "(def %s %s)"` 决定变量声明格式。easyob 自动解析 `:var` 头参数，拼接到代码体前。
 
-## 文件输出
+### 代码完整性包裹（`:head` / `:tail`）
 
-如果代码生成图片等文件，使用 `:file` 选项：
+对于需要打印返回值的语言（如 Clojure），`easyob` 在非会话模式下会自动包裹 `(prn (do ...))`，确保最后一个表达式的结果被输出。  
+`head` 和 `tail` 可以是空字符串，也可以从 `:prologue` / `:epilogue` 头参数动态覆盖。
 
-```elisp
-(easyob-def dot "dot -Tpng $FILE -o $FILE.png"
-  :extension ".dot"
-  :file "$FILE.png")
-```
+### 异步会话（`:async yes`）
 
-然后在 Org 中：
+在语言定义中启用 `:session-async t` 后，用户可通过 `:async yes` 让代码在 REPL 中异步执行，结果稍后自动插入到 `#+RESULTS`，不阻塞 Emacs。
 
 ```org
-#+BEGIN_SRC dot :file result.png
-graph { a -- b; }
+#+BEGIN_SRC ruby :session r :async yes
+  sleep 2
+  "Done"
 #+END_SRC
 ```
 
-执行后，Org 会显示图片 `result.png`。
+### 智能提示符匹配
 
----
+`easyob` 自动剥离 ANSI 转义序列，并过滤 REPL 回显的输入行，确保结果纯净（不再包含 `user=>` 或重复的代码）。
 
-## 代码补全/自动包装
+### 输出文件（`:file`）
 
-有些语言需要代码必须包含某个特定语句（例如 C 需要 `main()` 函数），可以用 `:complete-check-regx` 检测，若缺失则自动包裹。
+如果需要将结果写入文件，可以指定 `:file "result.txt"`，结果将替换为该文件的路径。  
+模板变量 `$FILE`、`$BODY` 等可在命令或文件路径中使用。
 
-```elisp
-(easyob-def c "gcc $FILE -o $FILE_SIMPLE && $FILE_SIMPLE"
-  :extension ".c"
-  :complete-check-regx "int main("
-  :complete-prefix "#include <stdio.h>\nint main(int argc, char *argv[]) {"
-  :complete-subfix ";\nreturn 0;}")
-```
+## 语言配置参数速查
 
-如果代码块中**没有** `int main(`，则自动补全为一个完整的 C 程序。
+调用 `easyob-def-session` 时，前四个参数分别是 `名称`、`非会话命令`、`会话命令`、`提示符正则`。之后的 `:key val` 参数都可用：
 
----
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `:lang` | 语言名（符号名默认） | `"ruby"` |
+| `:extension` | 临时文件扩展名 | `".rb"` |
+| `:filename-prefix` | 临时文件前缀 | `"ob-ruby-"` |
+| `:head` | 包裹头部 | `"puts ("` |
+| `:tail` | 包裹尾部 | `")"` |
+| `:var` | 变量声明格式 | `"%s = %s"` |
+| `:var-mode` | `'format`（默认）或自定义函数 | `'format` |
+| `:complete-check-regx` | 判断代码是否需要额外包裹 | `"prn\\|@results"` |
+| `:complete-prefix` / `:complete-subfix` | 完整性包裹 | `"print("` / `")"` |
+| `:session-cmd` | REPL 启动命令 | `'("lua" "-i")` |
+| `:prompt-regexp` | 提示符正则 | `">[ \t]*"` |
+| `:eval-cmd` | 发送给 REPL 的包装格式 | `"%s\\n"` |
+| `:session-async` | 默认开启异步会话 | `t` |
+| `:no-session` | 明确禁止会话 | `t` |
+| `:alias` | 语言别名 | `"js"` |
+| `:default-header-args` | 默认头参数 | `'(:results "output")` |
+| `:header-args-def` | 定义可用的头参数 | `'(:var :results :session)` |
+| `:edit-prep` | 编辑代码块时的回调函数 | `(lambda (info) ...)` |
+| `:execute-fn` | 完全自定义执行函数 | `(lambda (body params) ...)` |
+| `:file` | 默认输出文件模板 | `"$FILE_DIR/output.txt"` |
 
-## 多语言配置示例
+若不需要会话，可使用 `easyob-def` 宏，它不包含会话相关参数，但其他参数完全一致。
 
-```elisp
-;; Python
-(easyob-def python "python3 $FILE"
-  :extension ".py"
-  :var "%s = %s")
+## 测试
 
-;; Ruby
-(easyob-def ruby "ruby $FILE"
-  :extension ".rb"
-  :var "%s = %s")
+项目包含完整的 `make test` 命令，在 `Makefile` 中已配置字节编译和 32 个测试用例，覆盖工具函数、执行流程、会话同步/异步、回显过滤等。  
+运行前请确保系统中存在 `python`、`clj` 等测试所需的可执行文件，否则部分测试会自动跳过。
 
-;; JavaScript (Node.js)
-(easyob-def js "node $FILE"
-  :extension ".js"
-  :var "const %s = %s")
+## 许可
 
-;; Rust (需要安装 rust-script 或 cargo-script)
-(easyob-def rust "rust-script $FILE"
-  :extension ".rs"
-  :var "let %s = %s;")
-
-;; PlantUML
-(easyob-def plantuml "plantuml -tpng $FILE -o $FILE_DIR"
-  :extension ".puml"
-  :file "$FILE_SIMPLE.png")
-```
-
----
-
-## 注意事项
-
-1. **Shell 注入风险**：`$BODY` 占位符直接将代码文本嵌入命令行，如果代码包含空格或特殊字符，可能导致意外行为。建议尽量使用 `$FILE`（临时文件方式）而非 `$BODY`。
-2. **变量值未转义**：`%s` 格式化变量时，值直接插入代码。对于字符串，请确保在 Org 的 `:var` 中使用双引号包裹的值或自定义转换。
-3. **兼容性**：`easyob` 仅在 Emacs 24.4+ 上测试，需要依赖 `s` 字符串操作库（可通过 ELPA 安装）。
-4. **安全性**：不要对不可信的代码块使用 `easyob-def` 自动执行，以免任意代码执行。
-
----
-
-## 对比原生 ob-*.el
-
-| 功能                     | easyob                          | 原生 ob-*.el                      |
-|--------------------------|---------------------------------|------------------------------------|
-| 定义复杂度               | 一行宏调用                      | 需要编写数十行 Elisp              |
-| 变量传递                 | 格式字符串                      | 复杂的序列化函数                  |
-| 临时文件                 | 自动管理                        | 需要手动处理                      |
-| 会话支持                 | ❌（当前不支持）                | ✅                                |
-| 错误处理                 | 基础（stdout/stderr）           | 可定制                            |
-| 适合场景                 | 快速原型、一次性语言、个人使用  | 复杂项目、需要完整支持的包        |
-
----
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！  
-项目主页：https://github.com/lyt0628/easyob
-
----
-
-## 许可证
-
-GPL v3，详见 [LICENSE](LICENSE) 文件。
+本项目遵循自由软件许可，欢迎提交 issue 和 pull request.

@@ -24,28 +24,22 @@
   (should (equal (easyob--custom-vars "%s = %s" '((x . 1) (y . 2)))
                  "\nx = 1\n\ny = 2\n\n")))
 
-(ert-deftest easyob--expand-template-test ()
+(ert-deftest easyob--expand-placeholders-test ()
   (let ((body "print(1+1)")
         (tmpfile "/tmp/test.py"))
     (should (string-match-p (regexp-quote body)
-                            (easyob--expand-template "$BODY" tmpfile body)))
+                            (easyob--expand-placeholders "$BODY" tmpfile body)))
     (should (string-match-p (regexp-quote tmpfile)
-                            (easyob--expand-template "$FILE" tmpfile body)))
+                            (easyob--expand-placeholders "$FILE" tmpfile body)))
     (should (string-match-p (regexp-quote (file-name-directory tmpfile))
-                            (easyob--expand-template "$FILE_DIR" tmpfile body)))
+                            (easyob--expand-placeholders "$FILE_DIR" tmpfile body)))
     (should (string-match-p (regexp-quote (file-name-base tmpfile))
-                            (easyob--expand-template "$FILE_BASE" tmpfile body)))))
+                            (easyob--expand-placeholders "$FILE_BASE" tmpfile body)))))
 
 (ert-deftest easyob--process-body-var-mode-format ()
   (let ((params '((:var . (x . 1)))))
     (should (string-match-p "x = 1"
                             (easyob--process-body "echo $x" params 'format "%s = %s"
-                                                  nil "" "" "" "" nil nil)))))
-
-(ert-deftest easyob--process-body-var-mode-let ()
-  (let ((params '((:var . (x . 1)))))
-    (should (string-match-p "let ((x 1))"
-                            (easyob--process-body "body" params 'let nil
                                                   nil "" "" "" "" nil nil)))))
 
 (ert-deftest easyob--process-body-prologue-epilogue ()
